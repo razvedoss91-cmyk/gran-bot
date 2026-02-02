@@ -1,6 +1,5 @@
 import os
 import logging
-import asyncio
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
@@ -11,9 +10,9 @@ from telegram.ext import (
     filters,
     ConversationHandler,
     CallbackContext,
+    ContextTypes,
 )
-from threading import Thread
-import time
+import threading
 
 # Токен будет из переменных окружения Render
 TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -58,14 +57,17 @@ def get_package_recommendation(knives, load, peaks):
     return package, price, details
 
 # Команда /start
-async def start(update: Update, context: CallbackContext) -> int:
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    # Очищаем предыдущие данные
+    context.user_data.clear()
+    
     await update.message.reply_text(
         "🔪 *СКОЛЬКО ИНСТРУМЕНТА В ОБОРОТЕ?*\n\n"
         "Укажите общее количество ножей, которые активно используются на вашей кухне:\n\n"
         "• Шеф-нож / поварской\n"
-        "• Сенсюки / универсальные\n"
-        "• Разделочные\n"
-        "• Филейные\n"
+        "• Универсальный\n"
+        "• Разделочный\n"
+        "• Филейный\n"
         "• Прочие специализированные\n\n"
         "*Введите общее число:* (например: 18)",
         parse_mode="Markdown"
@@ -73,7 +75,7 @@ async def start(update: Update, context: CallbackContext) -> int:
     return KNIVES
 
 # Вопрос 1: Количество ножей
-async def ask_knives(update: Update, context: CallbackContext) -> int:
+async def ask_knives(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     try:
         knives = int(update.message.text)
         if knives <= 0:
@@ -87,12 +89,12 @@ async def ask_knives(update: Update, context: CallbackContext) -> int:
             f"✅ Принято: {knives} единиц инструмента.\n\n"
             "📊 *КАКОЙ ОБЪЁМ РАБОТЫ КУХНИ?*\n\n"
             "Оцените среднюю ежедневную нагрузку:\n\n"
-            "• *ЛЁГКАЯ* — до 50 покрытий (covers) в день\n"
+            "• *ЛЁГКАЯ* — до 50 блюд в день\n"
             "  (небольшие кафе, пекарни, завтраки)\n\n"
-            "• *СРЕДНЯЯ* — 50-150 покрытий в день\n"
-            "  (рестораны с стабильным потоком, бизнес-ланчи)\n\n"
-            "• *ВЫСОКАЯ* — от 150 покрытий в день\n"
-            "  (рестораны с живой кухни, вечерние сессии, кейтеринг)",
+            "• *СРЕДНЯЯ* — 50-150 блюд в день\n"
+            "  (рестораны со стабильным потоком, бизнес-ланчи)\n\n"
+            "• *ВЫСОКАЯ* — от 150 блюд в день\n"
+            "  (банкеты, вечерние сессии, кейтеринг)",
             parse_mode="Markdown",
             reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
         )
@@ -102,9 +104,11 @@ async def ask_knives(update: Update, context: CallbackContext) -> int:
         return KNIVES
 
 # Вопрос 2: Нагрузка
-async def ask_load(update: Update, context: CallbackContext) -> int:
-    load = update.message.text
-    if load not in ["ЛЁГКАЯ", "СРЕДНЯЯ", "ВЫСОКАЯ"]:
+async def ask_load(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    load = update.message.text.upper()
+    valid_loads = ["ЛЁГКАЯ", "СРЕДНЯЯ", "ВЫСОКАЯ"]
+    
+    if load not in valid_loads:
         keyboard = [["ЛЁГКАЯ", "СРЕДНЯЯ", "ВЫСОКАЯ"]]
         await update.message.reply_text(
             "Пожалуйста, выберите вариант из клавиатуры:",
@@ -129,9 +133,11 @@ async def ask_load(update: Update, context: CallbackContext) -> int:
     return PEAKS
 
 # Вопрос 3: Пиковые нагрузки и результат
-async def ask_peaks(update: Update, context: CallbackContext) -> int:
-    peaks = update.message.text
-    if peaks not in ["РАВНОМЕРНО", "СЕЗОННО", "СОБЫТИЙНО", "ПОСТОЯННО"]:
+async def ask_peaks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    peaks = update.message.text.upper()
+    valid_peaks = ["РАВНОМЕРНО", "СЕЗОННО", "СОБЫТИЙНО", "ПОСТОЯННО"]
+    
+    if peaks not in valid_peaks:
         keyboard = [["РАВНОМЕРНО", "СЕЗОННО", "СОБЫТИЙНО", "ПОСТОЯННО"]]
         await update.message.reply_text(
             "Пожалуйста, выберите вариант из клавиатуры:",
@@ -141,8 +147,8 @@ async def ask_peaks(update: Update, context: CallbackContext) -> int:
     
     # Получаем данные
     context.user_data["peaks"] = peaks
-    knives = context.user_data["knives"]
-    load = context.user_data["load"]
+    knives = context.user_data.get("knives", 0)
+    load = context.user_data.get("load", "")
     
     # Рассчитываем пакет
     package, price, details = get_package_recommendation(knives, load, peaks)
@@ -195,6 +201,7 @@ async def ask_peaks(update: Update, context: CallbackContext) -> int:
         "Для точного расчёта и составления договора свяжитесь со мной:"
     )
     
+    # Удаляем клавиатуру с предыдущего шага
     await update.message.reply_text(
         response,
         parse_mode="Markdown",
@@ -205,7 +212,7 @@ async def ask_peaks(update: Update, context: CallbackContext) -> int:
     return CONFIRM
 
 # Обработка нажатия кнопок
-async def button_handler(update: Update, context: CallbackContext) -> int:
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
     
@@ -234,7 +241,7 @@ async def button_handler(update: Update, context: CallbackContext) -> int:
                 parse_mode="Markdown"
             )
         except Exception as e:
-            print(f"Ошибка отправки уведомления: {e}")
+            logging.error(f"Ошибка отправки уведомления: {e}")
         
         # Подтверждаем пользователю
         keyboard = [[
@@ -265,7 +272,7 @@ async def button_handler(update: Update, context: CallbackContext) -> int:
         return ConversationHandler.END
 
 # Отмена
-async def cancel(update: Update, context: CallbackContext) -> int:
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text(
         "Диалог отменён. Если хотите начать заново — /start",
         reply_markup=ReplyKeyboardRemove()
@@ -273,7 +280,7 @@ async def cancel(update: Update, context: CallbackContext) -> int:
     return ConversationHandler.END
 
 # Обработка ошибок
-async def error_handler(update: Update, context: CallbackContext):
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logging.error(f"Update {update} caused error {context.error}")
     try:
         await update.message.reply_text(
@@ -281,6 +288,15 @@ async def error_handler(update: Update, context: CallbackContext):
         )
     except:
         pass
+
+# Команда для принудительного сброса
+async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Принудительный сброс состояния"""
+    context.user_data.clear()
+    await update.message.reply_text(
+        "Состояние сброшено. Начните заново: /start",
+        reply_markup=ReplyKeyboardRemove()
+    )
 
 # Простейший HTTP-сервер для Render
 class HealthHandler(BaseHTTPRequestHandler):
@@ -293,66 +309,17 @@ class HealthHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
-def run_http_server(port=8080):
-    """Запускает HTTP-сервер для Render в отдельном потоке"""
+def run_http_server():
+    """Запускает HTTP-сервер для Render"""
+    port = int(os.environ.get("PORT", 8080))
     server = HTTPServer(('0.0.0.0', port), HealthHandler)
     print(f"✅ HTTP-сервер запущен на порту {port}")
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.server_close()
-
-async def run_bot():
-    """Асинхронный запуск Telegram бота"""
-    if not TOKEN:
-        print("❌ ОШИБКА: TELEGRAM_TOKEN не установлен!")
-        return
-    
-    print("🤖 Запуск Telegram бота...")
-    
-    app = Application.builder().token(TOKEN).build()
-    
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
-        states={
-            KNIVES: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_knives)],
-            LOAD: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_load)],
-            PEAKS: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_peaks)],
-            CONFIRM: [CallbackQueryHandler(button_handler)],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-    )
-    
-    app.add_handler(conv_handler)
-    app.add_error_handler(error_handler)
-    
-    print("✅ Бот запущен и готов к работе!")
-    
-    # Запускаем бота
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling()
-    
-    # Держим бота активным
-    try:
-        while True:
-            await asyncio.sleep(3600)  # Спим 1 час
-    except KeyboardInterrupt:
-        pass
-    finally:
-        await app.updater.stop()
-        await app.stop()
-        await app.shutdown()
-
-def start_bot():
-    """Запускает бота в отдельном потоке с event loop"""
-    asyncio.run(run_bot())
+    server.serve_forever()
 
 def main():
+    """Главная функция"""
     logging.basicConfig(
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         level=logging.INFO
     )
     
@@ -360,21 +327,48 @@ def main():
         print("❌ ОШИБКА: TELEGRAM_TOKEN не установлен!")
         return
     
-    # Получаем порт из переменных окружения Render
-    port = int(os.environ.get("PORT", 8080))
-    print(f"🌐 PORT из окружения: {port}")
-    
     # Запускаем HTTP-сервер в отдельном потоке
-    http_thread = Thread(target=run_http_server, args=(port,), daemon=True)
+    http_thread = threading.Thread(target=run_http_server, daemon=True)
     http_thread.start()
-    print(f"✅ HTTP-сервер запущен в отдельном потоке на порту {port}")
     
-    # Ждем немного, чтобы HTTP-сервер успел запуститься
-    time.sleep(2)
+    # Создаем и запускаем бота в главном потоке
+    app = Application.builder().token(TOKEN).build()
     
-    # Запускаем бота в главном потоке
-    print("🤖 Запускаем Telegram бота...")
-    start_bot()
+    # Добавляем reset команду
+    app.add_handler(CommandHandler("reset", reset))
+    
+    # Создаем ConversationHandler
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("start", start)],
+        states={
+            KNIVES: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, ask_knives),
+                CommandHandler("cancel", cancel),
+            ],
+            LOAD: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, ask_load),
+                CommandHandler("cancel", cancel),
+            ],
+            PEAKS: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, ask_peaks),
+                CommandHandler("cancel", cancel),
+            ],
+            CONFIRM: [
+                CallbackQueryHandler(button_handler),
+                CommandHandler("cancel", cancel),
+            ],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+        allow_reentry=True,  # Позволяет перезапускать диалог
+    )
+    
+    app.add_handler(conv_handler)
+    app.add_error_handler(error_handler)
+    
+    print("🤖 Бот запущен и готов к работе!")
+    
+    # Запускаем бота (блокирующий вызов)
+    app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
