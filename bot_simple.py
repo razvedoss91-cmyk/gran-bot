@@ -17,7 +17,7 @@ from telegram.ext import (
 # Токен будет из переменных окружения Render
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 # Ваш ID в Telegram для уведомлений (вставьте свой)
-YOUR_CHAT_ID = "ваш_telegram_id"  # Узнать можно через @userinfobot
+YOUR_CHAT_ID = "6314983702"  # Узнать можно через @userinfobot
 
 # Состояния диалога
 KNIVES, LOAD, PEAKS, CONFIRM = range(4)
