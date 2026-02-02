@@ -1,5 +1,6 @@
 import os
 import logging
+import asyncio
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
@@ -214,8 +215,8 @@ def run_http_server(port=8080):
     print(f"✅ HTTP-сервер запущен на порту {port}")
     server.serve_forever()
 
-def run_bot():
-    """Запускает Telegram бота"""
+async def run_bot_async():
+    """Асинхронный запуск Telegram бота"""
     # Проверяем токен
     if not TOKEN:
         print("❌ ОШИБКА: TELEGRAM_TOKEN не установлен!")
@@ -243,7 +244,20 @@ def run_bot():
     
     # Запускаем бота
     print("✅ Бот запущен и готов к работе!")
-    app.run_polling(drop_pending_updates=True)
+    await app.run_polling(drop_pending_updates=True)
+
+def run_bot():
+    """Запускает Telegram бота в отдельном event loop"""
+    # Создаём новый event loop для этого потока
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    try:
+        loop.run_until_complete(run_bot_async())
+    except KeyboardInterrupt:
+        print("Бот остановлен")
+    finally:
+        loop.close()
 
 def main():
     """Основная функция"""
@@ -251,6 +265,12 @@ def main():
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         level=logging.INFO
     )
+    
+    # Проверяем токен
+    if not TOKEN:
+        print("❌ ОШИБКА: TELEGRAM_TOKEN не установлен!")
+        print("Добавьте переменную TELEGRAM_TOKEN в настройках Render")
+        return
     
     # Запускаем бота в отдельном потоке
     bot_thread = threading.Thread(target=run_bot)
