@@ -274,28 +274,41 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         context.user_data.clear()
 
-# Функция отправки уведомления владельцу - ВАРИАНТ С ПРАВИЛЬНЫМ MARKDOWN
+# Функция отправки уведомления владельцу - ИСПРАВЛЕННАЯ ВЕРСИЯ
 async def send_notification_to_owner(context: ContextTypes.DEFAULT_TYPE, user_data: dict, user: dict):
     """Отправляет уведомление владельцу бота"""
     try:
-        # Экранируем все пользовательские данные для безопасности Markdown
-        first_name = str(user.get('first_name', '')).replace('*', '\\*').replace('_', '\\_')
-        last_name = str(user.get('last_name', '')).replace('*', '\\*').replace('_', '\\_')
-        username = f"@{user.get('username', 'нет')}" if user.get('username') else 'нет'
+        # Функция для очистки текста от Markdown символов
+        def clean_text(text):
+            if not text:
+                return ""
+            # Экранируем все Markdown символы
+            text = str(text)
+            for char in ['*', '_', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']:
+                text = text.replace(char, f'\\{char}')
+            return text
         
-        # Экранируем данные кухни
-        load = str(user_data.get('load', 'N/A')).replace('*', '\\*').replace('_', '\\_')
-        peaks = str(user_data.get('peaks', 'N/A')).replace('*', '\\*').replace('_', '\\_')
-        package = str(user_data.get('recommended_package', 'N/A')).replace('*', '\\*').replace('_', '\\_')
-        price = str(user_data.get('recommended_price', 'N/A')).replace('*', '\\*').replace('_', '\\_')
+        # Очищаем все пользовательские данные
+        first_name = clean_text(user.get('first_name', ''))
+        last_name = clean_text(user.get('last_name', ''))
+        username = f"@{clean_text(user.get('username', ''))}" if user.get('username') else 'нет'
+        user_id = user.get('id', 'N/A')
         
+        # Очищаем данные кухни
+        knives = clean_text(user_data.get('knives', 'N/A'))
+        load = clean_text(user_data.get('load', 'N/A'))
+        peaks = clean_text(user_data.get('peaks', 'N/A'))
+        package = clean_text(user_data.get('recommended_package', 'N/A'))
+        price = clean_text(user_data.get('recommended_price', 'N/A'))
+        
+        # Формируем текст с Markdown, но с экранированными данными
         user_info = (
             f"👤 *НОВАЯ ЗАЯВКА ЧЕРЕЗ БОТА*\n\n"
             f"• Имя: {first_name} {last_name}\n"
             f"• Username: {username}\n"
-            f"• ID: `{user.get('id', 'N/A')}`\n\n"
+            f"• ID: `{user_id}`\n\n"
             f"*Параметры кухни:*\n"
-            f"• Ножей: {user_data.get('knives', 'N/A')}\n"
+            f"• Ножей: {knives}\n"
             f"• Нагрузка: {load}\n"
             f"• Пики: {peaks}\n"
             f"• Рекомендованный пакет: {package}\n"
@@ -311,10 +324,36 @@ async def send_notification_to_owner(context: ContextTypes.DEFAULT_TYPE, user_da
         )
         logger.info(f"✅ Уведомление отправлено владельцу {YOUR_CHAT_ID}")
         return True
+        
     except Exception as e:
-        logger.error(f"❌ Ошибка отправки уведомления владельцу: {e}")
-        return False
-
+        logger.error(f"❌ Ошибка отправки уведомления владельцу: {e}", exc_info=True)
+        
+        # Если не получилось с Markdown, пробуем отправить простой текст
+        try:
+            simple_info = (
+                "👤 НОВАЯ ЗАЯВКА ЧЕРЕЗ БОТА\n\n"
+                f"Имя: {user.get('first_name', '')} {user.get('last_name', '')}\n"
+                f"Username: @{user.get('username', 'нет')}\n"
+                f"ID: {user.get('id', 'N/A')}\n\n"
+                "Параметры кухни:\n"
+                f"Ножей: {user_data.get('knives', 'N/A')}\n"
+                f"Нагрузка: {user_data.get('load', 'N/A')}\n"
+                f"Пики: {user_data.get('peaks', 'N/A')}\n"
+                f"Пакет: {user_data.get('recommended_package', 'N/A')}\n"
+                f"Стоимость: {user_data.get('recommended_price', 'N/A')}\n\n"
+                "✅ Пользователь выбрал пакет!"
+            )
+            
+            await context.bot.send_message(
+                chat_id=YOUR_CHAT_ID,
+                text=simple_info
+            )
+            logger.info(f"✅ Уведомление отправлено владельцу {YOUR_CHAT_ID} (простой текст)")
+            return True
+            
+        except Exception as e2:
+            logger.error(f"❌ Ошибка отправки простого текста: {e2}")
+            return False
 # Обработка нажатия кнопок
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
