@@ -14,8 +14,12 @@ logger = logging.getLogger(__name__)
 
 # Токен будет из переменных окружения Render
 TOKEN = os.getenv("TELEGRAM_TOKEN")
-# Ваш ID в Telegram для уведомлений (вставьте свой)
-YOUR_CHAT_ID = "6314983702"  # Узнать можно через @userinfobot
+
+# === ВАШИ ДАННЫЕ ===
+YOUR_CHAT_ID = 6314983702                # Ваш ID для уведомлений
+YOUR_TELEGRAM_USERNAME = "rojdennebesamy" # Ваш username для лички
+YOUR_TELEGRAM_CHANNEL = "pod_pravilnym_uglom" # Ваш канал
+# ===================
 
 # Логика выбора пакета
 def get_package_recommendation(knives, load, peaks):
@@ -131,13 +135,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["load"] = load_normalized
         context.user_data["step"] = "peaks"
         
-        keyboard = [["РАВНОМЕРНО", "СЕЗОННО", "СОБЫТИЙНО", "ПОСТОЯННО"]]
+        keyboard = [["ПОСТОЯННЫЙ РИТМ", "ПИК ВЫХОДНОГО ДНЯ", "МЕРОПРИЯТИЯ", "ВЫСОКИЙ ТЕМП"]]
         await update.message.reply_text(
             f"✅ Принято: {load_normalized} нагрузка.\n\n"
             "🚀 *КАКИЕ ПИКОВЫЕ НАГРУЗКИ БЫВАЮТ?*\n\n"
             "Как часто кухня работает на пределе возможностей:\n\n"
             "• *ПОСТОЯННЫЙ РИТМ* — график предсказуем, без резких всплесков\n"
-            "• *ПИКИ ВЫХОДНОГО ДНЯ* — зависит от дня недели\n"
+            "• *ПИК ВЫХОДНОГО ДНЯ* — зависит от дня недели\n"
             "• *МЕРОПРИЯТИЯ* — банкеты, корпоративы с высокой нагрузкой\n"
             "• *ВЫСОКИЙ ТЕМП* — кухня постоянно в высоком темпе",
             parse_mode="Markdown",
@@ -151,13 +155,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Нормализуем возможные варианты написания
         peaks_mapping = {
             "ПОСТОЯННЫЙ РИТМ": "ПОСТОЯННЫЙ РИТМ",
-            "ПИКИ ВЫХОДНОГО ДНЯ": "ПИКИ ВЫХОДНОГО ДНЯ",
+            "ПИК ВЫХОДНОГО ДНЯ": "ПИК ВЫХОДНОГО ДНЯ",
             "МЕРОПРИЯТИЯ": "МЕРОПРИЯТИЯ",
             "ВЫСОКИЙ ТЕМП": "ВЫСОКИЙ ТЕМП",
             "РИТМ": "ПОСТОЯННЫЙ РИТМ",
-            "ВЫХОДНЫЕ": "ПИКИ ВЫХОДНОГО ДНЯ",
+            "ВЫХОДНЫЕ": "ПИК ВЫХОДНОГО ДНЯ",
+            "ВЫХОДНОЙ": "ПИК ВЫХОДНОГО ДНЯ",
             "БАНКЕТЫ": "МЕРОПРИЯТИЯ",
             "КОРПОРАТИВЫ": "МЕРОПРИЯТИЯ",
+            "МЕРОПРИЯТИЕ": "МЕРОПРИЯТИЯ",
             "ТЕМП": "ВЫСОКИЙ ТЕМП",
             "ПОСТОЯННО": "ВЫСОКИЙ ТЕМП"
         }
@@ -211,19 +217,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response += (
             "⚠️ *Это предварительная рекомендация.*\n"
             "Для точного расчёта и составления договора свяжитесь со мной:\n\n"
-            "📞 Телефон: +7 (951) 535-77-67\n"
-            "✉️ Telegram: [написать](https://t.me/rojdennebesamy)"
+            f"📞 Телефон: +7 (951) 535-77-67\n"
+            f"✉️ Telegram: [@{YOUR_TELEGRAM_USERNAME}](https://t.me/{YOUR_TELEGRAM_USERNAME})\n"
+            f"📢 Канал: [@{YOUR_TELEGRAM_CHANNEL}](https://t.me/{YOUR_TELEGRAM_CHANNEL})"
         )
         
-        # Создаём inline-кнопки - только с валидными URL
+        # Создаём inline-кнопки
         keyboard = [
             [
                 InlineKeyboardButton(f"✅ Выбрать {package}", callback_data="select_package"),
                 InlineKeyboardButton("🔄 Начать заново", callback_data="restart")
             ],
             [
-                # Убрали невалидный tel: URL, оставили только валидный Telegram URL
-                InlineKeyboardButton("✉️ Telegram-канал", url="https://t.me/pod_pravilnym_uglom")
+                InlineKeyboardButton("✉️ Написать в личку", url=f"https://t.me/{YOUR_TELEGRAM_USERNAME}"),
+                InlineKeyboardButton("📢 Подписаться на канал", url=f"https://t.me/{YOUR_TELEGRAM_CHANNEL}")
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -261,12 +268,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         
         try:
-            # Отправляем вам уведомление
+            # Отправляем вам уведомление в личку
             await context.bot.send_message(
-                chat_id=6314983702,
+                chat_id=YOUR_CHAT_ID,
                 text=user_info,
                 parse_mode="Markdown"
             )
+            logger.info(f"✅ Уведомление отправлено на ID: {YOUR_CHAT_ID}")
         except Exception as e:
             logger.error(f"Ошибка отправки уведомления: {e}")
         
@@ -275,17 +283,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "✅ *Отлично! Я уже направил уведомление о Вашем выборе!*\n\n"
             "Мы свяжемся с Вами в рабочее время (Пн-Пт 9:00-18:00).\n\n"
             "📞 *Тимофей Борздов* — руководитель сервиса «Грань»\n"
-            "Связаться можно по номеру:\n\n"
-            "📞 Телефон: +7 (951) 535-77-67\n"
-            "Или написать в Telegram:\n"
-            "✉️ Telegram: @pod_pravilnym_uglom\n\n"
+            "Связаться можно:\n\n"
+            f"📞 Телефон: +7 (951) 535-77-67\n"
+            f"✉️ Telegram: @{YOUR_TELEGRAM_USERNAME}\n"
+            f"📢 Канал: @{YOUR_TELEGRAM_CHANNEL}\n\n"
             "Сайт: granservice.pro"
         )
         
-        # Создаем простую кнопку для перехода в Telegram
-        keyboard = [[
-            InlineKeyboardButton("✉️ Написать в Telegram", url="https://t.me/pod_pravilnym_uglom")
-        ]]
+        # Создаем кнопки
+        keyboard = [
+            [
+                InlineKeyboardButton("✉️ Написать в личку", url=f"https://t.me/{YOUR_TELEGRAM_USERNAME}"),
+                InlineKeyboardButton("📢 Подписаться на канал", url=f"https://t.me/{YOUR_TELEGRAM_CHANNEL}")
+            ]
+        ]
         
         await query.edit_message_text(
             response_text,
@@ -301,6 +312,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Диалог сброшен. Напишите /start, чтобы начать заново.",
             reply_markup=ReplyKeyboardRemove()
         )
+
+# Команда для теста уведомлений
+async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Тестовая команда для проверки уведомлений"""
+    try:
+        await context.bot.send_message(
+            chat_id=YOUR_CHAT_ID,
+            text="✅ *ТЕСТОВОЕ УВЕДОМЛЕНИЕ*\nБот работает корректно!",
+            parse_mode="Markdown"
+        )
+        await update.message.reply_text("✅ Тестовое уведомление отправлено вам в личку!")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {str(e)}")
 
 # Команда /reset для принудительного сброса
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -354,6 +378,7 @@ def main():
     # Регистрируем обработчики
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset_command))
+    app.add_handler(CommandHandler("test", test))  # Тестовая команда
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(button_handler))
     
@@ -361,6 +386,9 @@ def main():
     app.add_error_handler(error_handler)
     
     print("🤖 Бот запущен и готов к работе!")
+    print(f"📱 Уведомления будут отправляться на ID: {YOUR_CHAT_ID}")
+    print(f"💬 Username для лички: @{YOUR_TELEGRAM_USERNAME}")
+    print(f"📢 Канал: @{YOUR_TELEGRAM_CHANNEL}")
     
     # Запускаем бота
     app.run_polling(drop_pending_updates=True)
