@@ -274,21 +274,32 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         context.user_data.clear()
 
-# Функция отправки уведомления владельцу
+# Функция отправки уведомления владельцу - ВАРИАНТ С ПРАВИЛЬНЫМ MARKDOWN
 async def send_notification_to_owner(context: ContextTypes.DEFAULT_TYPE, user_data: dict, user: dict):
     """Отправляет уведомление владельцу бота"""
     try:
+        # Экранируем все пользовательские данные для безопасности Markdown
+        first_name = str(user.get('first_name', '')).replace('*', '\\*').replace('_', '\\_')
+        last_name = str(user.get('last_name', '')).replace('*', '\\*').replace('_', '\\_')
+        username = f"@{user.get('username', 'нет')}" if user.get('username') else 'нет'
+        
+        # Экранируем данные кухни
+        load = str(user_data.get('load', 'N/A')).replace('*', '\\*').replace('_', '\\_')
+        peaks = str(user_data.get('peaks', 'N/A')).replace('*', '\\*').replace('_', '\\_')
+        package = str(user_data.get('recommended_package', 'N/A')).replace('*', '\\*').replace('_', '\\_')
+        price = str(user_data.get('recommended_price', 'N/A')).replace('*', '\\*').replace('_', '\\_')
+        
         user_info = (
             f"👤 *НОВАЯ ЗАЯВКА ЧЕРЕЗ БОТА*\n\n"
-            f"• Имя: {user.get('first_name', '')} {user.get('last_name', '')}\n"
-            f"• Username: @{user.get('username', 'нет')}\n"
-            f"• ID: {user.get('id', 'N/A')}\n\n"
+            f"• Имя: {first_name} {last_name}\n"
+            f"• Username: {username}\n"
+            f"• ID: `{user.get('id', 'N/A')}`\n\n"
             f"*Параметры кухни:*\n"
             f"• Ножей: {user_data.get('knives', 'N/A')}\n"
-            f"• Нагрузка: {user_data.get('load', 'N/A')}\n"
-            f"• Пики: {user_data.get('peaks', 'N/A')}\n"
-            f"• Рекомендованный пакет: {user_data.get('recommended_package', 'N/A')}\n"
-            f"• Стоимость: {user_data.get('recommended_price', 'N/A')}\n\n"
+            f"• Нагрузка: {load}\n"
+            f"• Пики: {peaks}\n"
+            f"• Рекомендованный пакет: {package}\n"
+            f"• Стоимость: {price}\n\n"
             f"✅ *Пользователь выбрал пакет!*"
         )
         
