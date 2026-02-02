@@ -16,10 +16,9 @@ logger = logging.getLogger(__name__)
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 
 # === ВАШИ ДАННЫЕ ===
-# ВАЖНО: Узнайте ваш РЕАЛЬНЫЙ ID через @userinfobot
-YOUR_CHAT_ID = 6314983702                # Замените на РЕАЛЬНЫЙ ID из @userinfobot
-YOUR_TELEGRAM_USERNAME = "rojdennebesamy" # Ваш username для лички
-YOUR_TELEGRAM_CHANNEL = "pod_pravilnym_uglom" # Ваш канал
+YOUR_CHAT_ID = 6314983702  # Ваш ID для уведомлений
+YOUR_TELEGRAM_USERNAME = "rojdennebesamy"  # Ваш username для лички
+YOUR_TELEGRAM_CHANNEL = "pod_pravilnym_uglom"  # Ваш канал
 # ===================
 
 # Логика выбора пакета
@@ -59,10 +58,7 @@ def get_package_recommendation(knives, load, peaks):
 # Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Полностью очищаем состояние
-    if context.user_data:
-        context.user_data.clear()
-    
-    # Начинаем с чистого листа
+    context.user_data.clear()
     context.user_data["step"] = "knives"
     
     await update.message.reply_text(
@@ -74,7 +70,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• Филейный\n"
         "• Прочие специализированные\n\n"
         "*Введите общее число:* (например: 18)",
-        parse_mode="Markdown"
+        parse_mode="Markdown",
+        reply_markup=ReplyKeyboardRemove()  # Удаляем старую клавиатуру
     )
 
 # Обработка всех сообщений
@@ -84,7 +81,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     step = context.user_data.get("step", "knives")
-    logger.info(f"Обработка сообщения. Шаг: {step}, Текст: {update.message.text}")
+    logger.info(f"Обработка сообщения от {update.effective_user.id}. Шаг: {step}")
     
     try:
         if step == "knives":
@@ -97,7 +94,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
                 context.user_data["knives"] = knives
                 context.user_data["step"] = "load"
-                logger.info(f"Сохранили ножей: {knives}, переходим к нагрузке")
                 
                 keyboard = [["ЛЁГКАЯ", "СРЕДНЯЯ", "ВЫСОКАЯ"]]
                 await update.message.reply_text(
@@ -119,7 +115,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif step == "load":
             # Шаг 2: Нагрузка
             load = update.message.text.upper()
-            logger.info(f"Получена нагрузка: {load}")
             
             # Нормализуем возможные варианты написания
             load_mapping = {
@@ -143,7 +138,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             load_normalized = load_mapping[load]
             context.user_data["load"] = load_normalized
             context.user_data["step"] = "peaks"
-            logger.info(f"Сохранили нагрузку: {load_normalized}, переходим к пикам")
             
             keyboard = [["ПОСТОЯННЫЙ РИТМ", "ПИК ВЫХОДНОГО ДНЯ", "МЕРОПРИЯТИЯ", "ВЫСОКИЙ ТЕМП"]]
             await update.message.reply_text(
@@ -161,7 +155,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif step == "peaks":
             # Шаг 3: Пиковые нагрузки
             peaks = update.message.text.upper()
-            logger.info(f"Получены пики: {peaks}")
             
             # Нормализуем возможные варианты написания
             peaks_mapping = {
@@ -194,13 +187,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             knives = context.user_data.get("knives", 0)
             load = context.user_data.get("load", "")
             
-            logger.info(f"Все данные: ножей={knives}, нагрузка={load}, пики={peaks_normalized}")
-            
             # Рассчитываем пакет
             package, price, details = get_package_recommendation(knives, load, peaks_normalized)
             context.user_data["recommended_package"] = package
             context.user_data["recommended_price"] = price
-            logger.info(f"Рассчитан пакет: {package} за {price}")
             
             # Формируем ответ
             response = (
@@ -249,8 +239,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
+            # УДАЛЯЕМ КЛАВИАТУРУ ПРЕДЫДУЩЕГО ШАГА и отправляем новое сообщение
             await update.message.reply_text(
                 response,
+                parse_mode="Markdown",
+                reply_markup=ReplyKeyboardRemove(),  # Удаляем старую Reply-клавиатуру
+                disable_web_page_preview=True
+            )
+            
+            # Отправляем отдельное сообщение с inline-кнопками
+            await update.message.reply_text(
+                "👇 *Выберите действие:*",
                 parse_mode="Markdown",
                 reply_markup=reply_markup,
                 disable_web_page_preview=True
@@ -258,11 +257,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Устанавливаем финальный шаг
             context.user_data["step"] = "completed"
-            logger.info("Финальное сообщение отправлено")
         
         else:
             # Если шаг не распознан - начинаем заново
-            logger.warning(f"Неизвестный шаг: {step}, начинаем заново")
             await update.message.reply_text(
                 "Начните заново: /start",
                 reply_markup=ReplyKeyboardRemove()
@@ -277,6 +274,36 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         context.user_data.clear()
 
+# Функция отправки уведомления владельцу
+async def send_notification_to_owner(context: ContextTypes.DEFAULT_TYPE, user_data: dict, user: dict):
+    """Отправляет уведомление владельцу бота"""
+    try:
+        user_info = (
+            f"👤 *НОВАЯ ЗАЯВКА ЧЕРЕЗ БОТА*\n\n"
+            f"• Имя: {user.get('first_name', '')} {user.get('last_name', '')}\n"
+            f"• Username: @{user.get('username', 'нет')}\n"
+            f"• ID: {user.get('id', 'N/A')}\n\n"
+            f"*Параметры кухни:*\n"
+            f"• Ножей: {user_data.get('knives', 'N/A')}\n"
+            f"• Нагрузка: {user_data.get('load', 'N/A')}\n"
+            f"• Пики: {user_data.get('peaks', 'N/A')}\n"
+            f"• Рекомендованный пакет: {user_data.get('recommended_package', 'N/A')}\n"
+            f"• Стоимость: {user_data.get('recommended_price', 'N/A')}\n\n"
+            f"✅ *Пользователь выбрал пакет!*"
+        )
+        
+        # Отправляем уведомление владельцу
+        await context.bot.send_message(
+            chat_id=YOUR_CHAT_ID,
+            text=user_info,
+            parse_mode="Markdown"
+        )
+        logger.info(f"✅ Уведомление отправлено владельцу {YOUR_CHAT_ID}")
+        return True
+    except Exception as e:
+        logger.error(f"❌ Ошибка отправки уведомления владельцу: {e}")
+        return False
+
 # Обработка нажатия кнопок
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -284,52 +311,39 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         if query.data == "select_package":
-            logger.info("Пользователь выбрал пакет")
+            # Собираем данные пользователя
+            user = {
+                'first_name': query.from_user.first_name or '',
+                'last_name': query.from_user.last_name or '',
+                'username': query.from_user.username or 'нет',
+                'id': query.from_user.id
+            }
             
-            # Отправляем уведомление вам
-            user = query.from_user
-            user_info = (
-                f"👤 *НОВАЯ ЗАЯВКА ЧЕРЕЗ БОТА*\n\n"
-                f"• Имя: {user.first_name or ''} {user.last_name or ''}\n"
-                f"• Username: @{user.username if user.username else 'нет'}\n"
-                f"• ID: {user.id}\n\n"
-                f"*Параметры кухни:*\n"
-                f"• Ножей: {context.user_data.get('knives', 'N/A')}\n"
-                f"• Нагрузка: {context.user_data.get('load', 'N/A')}\n"
-                f"• Пики: {context.user_data.get('peaks', 'N/A')}\n"
-                f"• Рекомендованный пакет: {context.user_data.get('recommended_package', 'N/A')}\n"
-                f"• Стоимость: {context.user_data.get('recommended_price', 'N/A')}\n\n"
-                f"✅ *Пользователь выбрал пакет!*"
-            )
-            
-            try:
-                # Отправляем вам уведомление в личку
-                logger.info(f"Пытаюсь отправить уведомление на ID: {YOUR_CHAT_ID}")
-                result = await context.bot.send_message(
-                    chat_id=YOUR_CHAT_ID,
-                    text=user_info,
-                    parse_mode="Markdown"
-                )
-                logger.info(f"✅ Уведомление отправлено успешно. Результат: {result}")
-            except Exception as e:
-                logger.error(f"❌ Ошибка отправки уведомления: {e}", exc_info=True)
-                # Пробуем отправить сообщение об ошибке в чат с ботом
-                await query.edit_message_text(
-                    f"⚠️ Уведомление не отправлено (ошибка: {str(e)[:50]}...)\n\n"
-                    "Но ваша заявка сохранена. Пожалуйста, свяжитесь со мной напрямую."
-                )
+            # Отправляем уведомление владельцу
+            notification_sent = await send_notification_to_owner(context, context.user_data, user)
             
             # Подтверждаем пользователю
-            response_text = (
-                "✅ *Отлично! Я уже направил уведомление о Вашем выборе!*\n\n"
-                "Мы свяжемся с Вами в рабочее время (Пн-Пт 9:00-18:00).\n\n"
-                "📞 *Тимофей Борздов* — руководитель сервиса «Грань»\n"
-                "Связаться можно:\n\n"
-                f"📞 Телефон: +7 (951) 535-77-67\n"
-                f"✉️ Telegram: @{YOUR_TELEGRAM_USERNAME}\n"
-                f"📢 Канал: @{YOUR_TELEGRAM_CHANNEL}\n\n"
-                "Сайт: granservice.pro"
-            )
+            if notification_sent:
+                response_text = (
+                    "✅ *Отлично! Я уже направил уведомление о Вашем выборе!*\n\n"
+                    "Мы свяжемся с Вами в рабочее время (Пн-Пт 9:00-18:00).\n\n"
+                    "📞 *Тимофей Борздов* — руководитель сервиса «Грань»\n"
+                    "Связаться можно:\n\n"
+                    f"📞 Телефон: +7 (951) 535-77-67\n"
+                    f"✉️ Telegram: @{YOUR_TELEGRAM_USERNAME}\n"
+                    f"📢 Канал: @{YOUR_TELEGRAM_CHANNEL}\n\n"
+                    "Сайт: granservice.pro"
+                )
+            else:
+                response_text = (
+                    "✅ *Ваш выбор сохранен!*\n\n"
+                    "⚠️ *Техническая неполадка:* уведомление не отправлено автоматически.\n"
+                    "Пожалуйста, свяжитесь со мной напрямую:\n\n"
+                    f"📞 Телефон: +7 (951) 535-77-67\n"
+                    f"✉️ Telegram: @{YOUR_TELEGRAM_USERNAME}\n"
+                    f"📢 Канал: @{YOUR_TELEGRAM_CHANNEL}\n\n"
+                    "Сайт: granservice.pro"
+                )
             
             # Создаем кнопки
             keyboard = [
@@ -350,7 +364,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.clear()
         
         elif query.data == "restart":
-            logger.info("Пользователь начал заново")
             # Очищаем данные и отправляем инструкцию
             context.user_data.clear()
             await query.edit_message_text(
@@ -370,58 +383,34 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Тестовая команда для проверки уведомлений"""
     try:
-        logger.info(f"Тестовая команда. Отправляю уведомление на ID: {YOUR_CHAT_ID}")
-        
-        # Пробуем отправить тестовое сообщение
-        result = await context.bot.send_message(
+        # Отправляем тестовое уведомление
+        await context.bot.send_message(
             chat_id=YOUR_CHAT_ID,
-            text="✅ *ТЕСТОВОЕ УВЕДОМЛЕНИЕ*\nБот работает корректно!\n\nЭто сообщение пришло в вашу личку.",
+            text="✅ *ТЕСТОВОЕ УВЕДОМЛЕНИЕ*\n\n"
+                 "Это тестовое сообщение из бота.\n"
+                 "Если вы видите это - уведомления работают правильно!",
             parse_mode="Markdown"
         )
         
-        logger.info(f"✅ Тестовое уведомление отправлено. Результат: {result}")
         await update.message.reply_text(
-            f"✅ Тестовое уведомление отправлено на ID: {YOUR_CHAT_ID}\n"
-            f"Если вы не получили его в личку, значит:\n"
-            f"1. ID неверный\n"
-            f"2. Бот заблокирован вами\n\n"
-            f"Проверьте ваш ID через @userinfobot"
+            "✅ Тестовое уведомление отправлено!\n"
+            "Проверьте, пришло ли оно вам в личные сообщения."
         )
     except Exception as e:
         error_msg = str(e)
-        logger.error(f"❌ Ошибка отправки тестового уведомления: {error_msg}")
-        
-        if "chat not found" in error_msg.lower():
-            await update.message.reply_text(
-                f"❌ ОШИБКА: Не могу найти чат с ID {YOUR_CHAT_ID}\n\n"
-                f"Возможные причины:\n"
-                f"1. ID {YOUR_CHAT_ID} неверный\n"
-                f"2. Бот заблокирован вами\n"
-                f"3. Бот никогда не писал вам в личку\n\n"
-                f"📌 Решение:\n"
-                f"1. Напишите @userinfobot и узнайте ваш РЕАЛЬНЫЙ ID\n"
-                f"2. Напишите боту что-нибудь в личку\n"
-                f"3. Замените YOUR_CHAT_ID на правильный ID"
-            )
-        else:
-            await update.message.reply_text(f"❌ Ошибка: {error_msg[:100]}")
-
-# Команда для проверки состояния
-async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Проверка состояния бота"""
-    user_data = dict(context.user_data)
-    await update.message.reply_text(
-        f"📊 *Статус бота:*\n"
-        f"• Шаг: {user_data.get('step', 'не установлен')}\n"
-        f"• Ножей: {user_data.get('knives', 'не указано')}\n"
-        f"• Нагрузка: {user_data.get('load', 'не указано')}\n"
-        f"• Пики: {user_data.get('peaks', 'не указано')}\n\n"
-        f"📱 *Настройки:*\n"
-        f"• Ваш ID: {YOUR_CHAT_ID}\n"
-        f"• Ваш username: @{YOUR_TELEGRAM_USERNAME}\n"
-        f"• Ваш канал: @{YOUR_TELEGRAM_CHANNEL}",
-        parse_mode="Markdown"
-    )
+        await update.message.reply_text(
+            f"❌ Ошибка отправки тестового уведомления:\n\n"
+            f"`{error_msg[:200]}`\n\n"
+            f"Возможные причины:\n"
+            f"1. ID {YOUR_CHAT_ID} неверный\n"
+            f"2. Бот заблокирован вами\n"
+            f"3. Бот никогда не писал вам в личку\n\n"
+            f"📌 Решение:\n"
+            f"1. Напишите боту что-нибудь в личку\n"
+            f"2. Разблокируйте бота, если заблокировали\n"
+            f"3. Проверьте ID через @userinfobot",
+            parse_mode="Markdown"
+        )
 
 # Команда /reset для принудительного сброса
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -436,7 +425,8 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Ошибка в обработке обновления: {context.error}", exc_info=True)
     try:
         await update.message.reply_text(
-            "Произошла ошибка. Пожалуйста, начните заново: /start"
+            "Произошла ошибка. Пожалуйста, начните заново: /start",
+            reply_markup=ReplyKeyboardRemove()
         )
     except:
         pass
@@ -475,8 +465,7 @@ def main():
     # Регистрируем обработчики
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset_command))
-    app.add_handler(CommandHandler("test", test))      # Тест уведомлений
-    app.add_handler(CommandHandler("status", status))  # Статус бота
+    app.add_handler(CommandHandler("test", test))  # Тест уведомлений
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(button_handler))
     
@@ -485,13 +474,12 @@ def main():
     
     print("=" * 50)
     print("🤖 Бот запущен и готов к работе!")
-    print(f"📱 Ваш ID для уведомлений: {YOUR_CHAT_ID}")
-    print(f"💬 Ваш username: @{YOUR_TELEGRAM_USERNAME}")
-    print(f"📢 Ваш канал: @{YOUR_TELEGRAM_CHANNEL}")
+    print(f"📱 ID для уведомлений: {YOUR_CHAT_ID}")
+    print(f"💬 Username для лички: @{YOUR_TELEGRAM_USERNAME}")
+    print(f"📢 Канал: @{YOUR_TELEGRAM_CHANNEL}")
     print("=" * 50)
     print("\n📌 Команды для проверки:")
     print("/test - проверить уведомления")
-    print("/status - статус бота")
     print("/reset - сбросить данные")
     print("/start - начать диалог")
     print("=" * 50)
