@@ -1,5 +1,7 @@
 import os
 import logging
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     Application,
@@ -188,16 +190,39 @@ async def cancel(update: Update, context: CallbackContext) -> int:
 # Обработка ошибок
 async def error_handler(update: Update, context: CallbackContext):
     logging.error(f"Update {update} caused error {context.error}")
-    await update.message.reply_text(
-        "Произошла ошибка. Пожалуйста, начните заново: /start"
-    )
+    try:
+        await update.message.reply_text(
+            "Произошла ошибка. Пожалуйста, начните заново: /start"
+        )
+    except:
+        pass
 
-# Главная функция
-def main():
+# Простейший HTTP-сервер для Render
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b'Telegram bot is running!')
+    
+    def log_message(self, format, *args):
+        pass  # Отключаем логи запросов
+
+def run_http_server(port=8080):
+    """Запускает HTTP-сервер для Render"""
+    server = HTTPServer(('0.0.0.0', port), HealthHandler)
+    print(f"✅ HTTP-сервер запущен на порту {port}")
+    server.serve_forever()
+
+def run_bot():
+    """Запускает Telegram бота"""
     # Проверяем токен
     if not TOKEN:
-        logging.error("TELEGRAM_TOKEN не установлен!")
+        print("❌ ОШИБКА: TELEGRAM_TOKEN не установлен!")
+        print("Добавьте переменную TELEGRAM_TOKEN в настройках Render")
         return
+    
+    print("🤖 Запуск Telegram бота...")
     
     # Создаём приложение
     app = Application.builder().token(TOKEN).build()
@@ -217,12 +242,27 @@ def main():
     app.add_error_handler(error_handler)
     
     # Запускаем бота
-    print("Бот запущен...")
+    print("✅ Бот запущен и готов к работе!")
     app.run_polling(drop_pending_updates=True)
 
-if __name__ == "__main__":
+def main():
+    """Основная функция"""
     logging.basicConfig(
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         level=logging.INFO
     )
+    
+    # Запускаем бота в отдельном потоке
+    bot_thread = threading.Thread(target=run_bot)
+    bot_thread.daemon = True
+    bot_thread.start()
+    
+    # Получаем порт из переменной окружения (Render сам назначает)
+    port = int(os.environ.get("PORT", 8080))
+    
+    # Запускаем HTTP-сервер в основном потоке
+    print(f"🌐 Запуск HTTP-сервера для Render на порту {port}...")
+    run_http_server(port)
+
+if __name__ == "__main__":
     main()
