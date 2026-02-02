@@ -2,25 +2,13 @@ import os
 import logging
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    filters,
-    ConversationHandler,
-    CallbackContext,
-    ContextTypes,
-)
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 import threading
 
 # Токен будет из переменных окружения Render
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 # Ваш ID в Telegram для уведомлений (вставьте свой)
 YOUR_CHAT_ID = "6314983702"  # Узнать можно через @userinfobot
-
-# Состояния диалога
-KNIVES, LOAD, PEAKS, CONFIRM = range(4)
 
 # Логика выбора пакета
 def get_package_recommendation(knives, load, peaks):
@@ -57,162 +45,185 @@ def get_package_recommendation(knives, load, peaks):
     return package, price, details
 
 # Команда /start
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    # Очищаем предыдущие данные
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
+    context.user_data["step"] = "knives"
     
     await update.message.reply_text(
         "🔪 *СКОЛЬКО ИНСТРУМЕНТА В ОБОРОТЕ?*\n\n"
         "Укажите общее количество ножей, которые активно используются на вашей кухне:\n\n"
         "• Шеф-нож / поварской\n"
-        "• Универсальный\n"
-        "• Разделочный\n"
-        "• Филейный\n"
+        "• Сенсюки / универсальные\n"
+        "• Разделочные\n"
+        "• Филейные\n"
         "• Прочие специализированные\n\n"
         "*Введите общее число:* (например: 18)",
         parse_mode="Markdown"
     )
-    return KNIVES
 
-# Вопрос 1: Количество ножей
-async def ask_knives(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    try:
-        knives = int(update.message.text)
-        if knives <= 0:
-            await update.message.reply_text("Пожалуйста, введите положительное число.")
-            return KNIVES
+# Обработка всех сообщений
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Пропускаем команды
+    if update.message.text.startswith('/'):
+        return
+    
+    step = context.user_data.get("step", "knives")
+    
+    if step == "knives":
+        # Шаг 1: Количество ножей
+        try:
+            knives = int(update.message.text)
+            if knives <= 0:
+                await update.message.reply_text("Пожалуйста, введите положительное число.")
+                return
+            
+            context.user_data["knives"] = knives
+            context.user_data["step"] = "load"
+            
+            keyboard = [["ЛЁГКАЯ", "СРЕДНЯЯ", "ВЫСОКАЯ"]]
+            await update.message.reply_text(
+                f"✅ Принято: {knives} единиц инструмента.\n\n"
+                "📊 *КАКОЙ ОБЪЁМ РАБОТЫ КУХНИ?*\n\n"
+                "Оцените среднюю ежедневную нагрузку:\n\n"
+                "• *ЛЁГКАЯ* — до 50 покрытий (covers) в день\n"
+                "  (небольшие кафе, пекарни, завтраки)\n\n"
+                "• *СРЕДНЯЯ* — 50-150 покрытий в день\n"
+                "  (рестораны с стабильным потоком, бизнес-ланчи)\n\n"
+                "• *ВЫСОКАЯ* — от 150 покрытий в день\n"
+                "  (рестораны с живой кухней, вечерние сессии, кейтеринг)",
+                parse_mode="Markdown",
+                reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+            )
+        except ValueError:
+            await update.message.reply_text("Пожалуйста, введите число (например: 18).")
+    
+    elif step == "load":
+        # Шаг 2: Нагрузка
+        load = update.message.text.upper()
         
-        context.user_data["knives"] = knives
+        # Нормализуем возможные варианты написания
+        load_mapping = {
+            "ЛЕГКАЯ": "ЛЁГКАЯ",
+            "ЛЁГКАЯ": "ЛЁГКАЯ",
+            "СРЕДНЯЯ": "СРЕДНЯЯ",
+            "ВЫСОКАЯ": "ВЫСОКАЯ"
+        }
         
-        keyboard = [["ЛЁГКАЯ", "СРЕДНЯЯ", "ВЫСОКАЯ"]]
+        if load not in load_mapping:
+            keyboard = [["ЛЁГКАЯ", "СРЕДНЯЯ", "ВЫСОКАЯ"]]
+            await update.message.reply_text(
+                "Пожалуйста, выберите вариант из клавиатуры:",
+                reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+            )
+            return
+        
+        load_normalized = load_mapping[load]
+        context.user_data["load"] = load_normalized
+        context.user_data["step"] = "peaks"
+        
+        keyboard = [["РАВНОМЕРНО", "СЕЗОННО", "СОБЫТИЙНО", "ПОСТОЯННО"]]
         await update.message.reply_text(
-            f"✅ Принято: {knives} единиц инструмента.\n\n"
-            "📊 *КАКОЙ ОБЪЁМ РАБОТЫ КУХНИ?*\n\n"
-            "Оцените среднюю ежедневную нагрузку:\n\n"
-            "• *ЛЁГКАЯ* — до 50 блюд в день\n"
-            "  (небольшие кафе, пекарни, завтраки)\n\n"
-            "• *СРЕДНЯЯ* — 50-150 блюд в день\n"
-            "  (рестораны со стабильным потоком, бизнес-ланчи)\n\n"
-            "• *ВЫСОКАЯ* — от 150 блюд в день\n"
-            "  (банкеты, вечерние сессии, кейтеринг)",
+            f"✅ Принято: {load_normalized} нагрузка.\n\n"
+            "🚀 *КАКИЕ ПИКОВЫЕ НАГРУЗКИ БЫВАЮТ?*\n\n"
+            "Как часто кухня работает на пределе возможностей:\n\n"
+            "• *РАВНОМЕРНО* — график предсказуем, без резких всплесков\n"
+            "• *СЕЗОННО* — зависит от дня недели или времени года\n"
+            "• *СОБЫТИЙНО* — банкеты, корпоративы, праздничные дни\n"
+            "• *ПОСТОЯННО* — кухня постоянно в высоком темпе (сетевые проекты, фуд-холлы)",
             parse_mode="Markdown",
             reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
         )
-        return LOAD
-    except ValueError:
-        await update.message.reply_text("Пожалуйста, введите число (например: 18).")
-        return KNIVES
-
-# Вопрос 2: Нагрузка
-async def ask_load(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    load = update.message.text.upper()
-    valid_loads = ["ЛЁГКАЯ", "СРЕДНЯЯ", "ВЫСОКАЯ"]
     
-    if load not in valid_loads:
-        keyboard = [["ЛЁГКАЯ", "СРЕДНЯЯ", "ВЫСОКАЯ"]]
-        await update.message.reply_text(
-            "Пожалуйста, выберите вариант из клавиатуры:",
-            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+    elif step == "peaks":
+        # Шаг 3: Пиковые нагрузки
+        peaks = update.message.text.upper()
+        
+        # Нормализуем возможные варианты написания
+        peaks_mapping = {
+            "РАВНОМЕРНО": "РАВНОМЕРНО",
+            "СЕЗОННО": "СЕЗОННО",
+            "СОБЫТИЙНО": "СОБЫТИЙНО",
+            "СОБЫТИЙНЫЕ": "СОБЫТИЙНО",
+            "ПОСТОЯННО": "ПОСТОЯННО",
+            "ПОСТОЯННЫЕ": "ПОСТОЯННО"
+        }
+        
+        if peaks not in peaks_mapping:
+            keyboard = [["РАВНОМЕРНО", "СЕЗОННО", "СОБЫТИЙНО", "ПОСТОЯННО"]]
+            await update.message.reply_text(
+                "Пожалуйста, выберите вариант из клавиатуры:",
+                reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+            )
+            return
+        
+        peaks_normalized = peaks_mapping[peaks]
+        context.user_data["peaks"] = peaks_normalized
+        
+        # Получаем все данные
+        knives = context.user_data.get("knives", 0)
+        load = context.user_data.get("load", "")
+        
+        # Рассчитываем пакет
+        package, price, details = get_package_recommendation(knives, load, peaks_normalized)
+        context.user_data["recommended_package"] = package
+        context.user_data["recommended_price"] = price
+        
+        # Формируем ответ
+        response = (
+            f"🎯 *РЕКОМЕНДАЦИЯ*\n\n"
+            f"*Параметры вашей кухни:*\n"
+            f"• Инструмент: {knives} ножей\n"
+            f"• Нагрузка: {load}\n"
+            f"• Пики: {peaks_normalized}\n\n"
+            
+            f"*Оптимальный пакет:*\n"
+            f"**{package}** — {price}/месяц\n\n"
+            
+            f"*Что входит:*\n"
+            f"{details}\n\n"
         )
-        return LOAD
-    
-    context.user_data["load"] = load
-    
-    keyboard = [["РАВНОМЕРНО", "СЕЗОННО", "СОБЫТИЙНО", "ПОСТОЯННО"]]
-    await update.message.reply_text(
-        f"✅ Принято: {load} нагрузка.\n\n"
-        "🚀 *КАКИЕ ПИКОВЫЕ НАГРУЗКИ БЫВАЮТ?*\n\n"
-        "Как часто кухня работает на пределе возможностей:\n\n"
-        "• *РАВНОМЕРНО* — график предсказуем, без резких всплесков\n"
-        "• *СЕЗОННО* — зависит от дня недели или времени года\n"
-        "• *СОБЫТИЙНО* — банкеты, корпоративы, праздничные дни\n"
-        "• *ПОСТОЯННО* — кухня постоянно в высоком темпе (сетевые проекты, фуд-холлы)",
-        parse_mode="Markdown",
-        reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-    )
-    return PEAKS
-
-# Вопрос 3: Пиковые нагрузки и результат
-async def ask_peaks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    peaks = update.message.text.upper()
-    valid_peaks = ["РАВНОМЕРНО", "СЕЗОННО", "СОБЫТИЙНО", "ПОСТОЯННО"]
-    
-    if peaks not in valid_peaks:
-        keyboard = [["РАВНОМЕРНО", "СЕЗОННО", "СОБЫТИЙНО", "ПОСТОЯННО"]]
-        await update.message.reply_text(
-            "Пожалуйста, выберите вариант из клавиатуры:",
-            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+        
+        # Добавляем обоснование
+        if knives <= 14:
+            response += "*Почему этот пакет:* Для небольших кухонь с гибким графиком."
+        elif knives <= 21:
+            response += "*Почему этот пакет:* Оптимально для стабильной работы без простоев."
+        elif knives <= 28:
+            response += "*Почему этот пакет:* Для кухонь с высокой нагрузкой и регулярными пиками."
+        else:
+            response += "*Почему этот пакет:* Для крупных кухонь, сетей и постоянных пиковых нагрузок."
+        
+        response += "\n\n"
+        response += (
+            "⚠️ *Это предварительная рекомендация.*\n"
+            "Для точного расчёта и составления договора свяжитесь со мной:"
         )
-        return PEAKS
-    
-    # Получаем данные
-    context.user_data["peaks"] = peaks
-    knives = context.user_data.get("knives", 0)
-    load = context.user_data.get("load", "")
-    
-    # Рассчитываем пакет
-    package, price, details = get_package_recommendation(knives, load, peaks)
-    context.user_data["recommended_package"] = package
-    context.user_data["recommended_price"] = price
-    
-    # Формируем ответ
-    response = (
-        f"🎯 *РЕКОМЕНДАЦИЯ*\n\n"
-        f"*Параметры вашей кухни:*\n"
-        f"• Инструмент: {knives} ножей\n"
-        f"• Нагрузка: {load}\n"
-        f"• Пики: {peaks}\n\n"
         
-        f"*Оптимальный пакет:*\n"
-        f"**{package}** — {price}/месяц\n\n"
-        
-        f"*Что входит:*\n"
-        f"{details}\n\n"
-        
-        f"*Почему этот пакет:*\n"
-    )
-    
-    # Добавляем обоснование
-    if knives <= 14:
-        response += "Для небольших кухонь с гибким графиком."
-    elif knives <= 21:
-        response += "Оптимально для стабильной работы без простоев."
-    elif knives <= 28:
-        response += "Для кухонь с высокой нагрузкой и регулярными пиками."
-    else:
-        response += "Для крупных кухонь, сетей и постоянных пиковых нагрузок."
-    
-    # Создаём inline-кнопки
-    keyboard = [
-        [
-            InlineKeyboardButton(f"✅ Выбрать {package}", callback_data="select_package"),
-            InlineKeyboardButton("🔄 Начать заново", callback_data="restart")
-        ],
-        [
-            InlineKeyboardButton("📞 Позвонить Тимофею", url="tel:+79515357767"),
-            InlineKeyboardButton("✉️ Написать в Telegram", url="https://t.me/pod_pravilnym_ugLom")
+        # Создаём inline-кнопки
+        keyboard = [
+            [
+                InlineKeyboardButton(f"✅ Выбрать {package}", callback_data="select_package"),
+                InlineKeyboardButton("🔄 Начать заново", callback_data="restart")
+            ],
+            [
+                InlineKeyboardButton("📞 Позвонить Тимофею", url="tel:+79515357767"),
+                InlineKeyboardButton("✉️ Написать в Telegram", url="https://t.me/pod_pravilnym_ugLom")
+            ]
         ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    response += "\n\n"
-    response += (
-        "⚠️ *Это предварительная рекомендация.*\n"
-        "Для точного расчёта и составления договора свяжитесь со мной:"
-    )
-    
-    # Удаляем клавиатуру с предыдущего шага
-    await update.message.reply_text(
-        response,
-        parse_mode="Markdown",
-        reply_markup=reply_markup,
-        disable_web_page_preview=True
-    )
-    
-    return CONFIRM
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            response,
+            parse_mode="Markdown",
+            reply_markup=reply_markup,
+            disable_web_page_preview=True
+        )
+        
+        # Сбрасываем шаг, чтобы можно было начать заново
+        context.user_data["step"] = "completed"
 
 # Обработка нажатия кнопок
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
@@ -261,40 +272,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             reply_markup=InlineKeyboardMarkup(keyboard),
             disable_web_page_preview=True
         )
-        
-        return ConversationHandler.END
     
     elif query.data == "restart":
+        # Очищаем данные и отправляем инструкцию
+        context.user_data.clear()
         await query.edit_message_text(
-            "Начинаем заново! Напишите /start",
+            "Диалог сброшен. Напишите /start, чтобы начать заново.",
             reply_markup=ReplyKeyboardRemove()
         )
-        return ConversationHandler.END
 
-# Отмена
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text(
-        "Диалог отменён. Если хотите начать заново — /start",
-        reply_markup=ReplyKeyboardRemove()
-    )
-    return ConversationHandler.END
-
-# Обработка ошибок
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logging.error(f"Update {update} caused error {context.error}")
-    try:
-        await update.message.reply_text(
-            "Произошла ошибка. Пожалуйста, начните заново: /start"
-        )
-    except:
-        pass
-
-# Команда для принудительного сброса
-async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Принудительный сброс состояния"""
+# Команда /reset для принудительного сброса
+async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text(
-        "Состояние сброшено. Начните заново: /start",
+        "Все данные сброшены. Начните заново: /start",
         reply_markup=ReplyKeyboardRemove()
     )
 
@@ -334,41 +325,16 @@ def main():
     # Создаем и запускаем бота в главном потоке
     app = Application.builder().token(TOKEN).build()
     
-    # Добавляем reset команду
-    app.add_handler(CommandHandler("reset", reset))
-    
-    # Создаем ConversationHandler
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
-        states={
-            KNIVES: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, ask_knives),
-                CommandHandler("cancel", cancel),
-            ],
-            LOAD: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, ask_load),
-                CommandHandler("cancel", cancel),
-            ],
-            PEAKS: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, ask_peaks),
-                CommandHandler("cancel", cancel),
-            ],
-            CONFIRM: [
-                CallbackQueryHandler(button_handler),
-                CommandHandler("cancel", cancel),
-            ],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-        allow_reentry=True,  # Позволяет перезапускать диалог
-    )
-    
-    app.add_handler(conv_handler)
-    app.add_error_handler(error_handler)
+    # Регистрируем обработчики
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("reset", reset_command))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(CallbackQueryHandler(button_handler))
     
     print("🤖 Бот запущен и готов к работе!")
     
     # Запускаем бота (блокирующий вызов)
-    app.run_polling(drop_pending_updates=True)
+    app.run_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()
