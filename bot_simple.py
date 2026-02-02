@@ -13,6 +13,7 @@ from telegram.ext import (
     CallbackContext,
 )
 from threading import Thread
+import time
 
 # Токен будет из переменных окружения Render
 TOKEN = os.getenv("TELEGRAM_TOKEN")
@@ -293,10 +294,15 @@ class HealthHandler(BaseHTTPRequestHandler):
         pass
 
 def run_http_server(port=8080):
-    """Запускает HTTP-сервер для Render"""
+    """Запускает HTTP-сервер для Render в отдельном потоке"""
     server = HTTPServer(('0.0.0.0', port), HealthHandler)
     print(f"✅ HTTP-сервер запущен на порту {port}")
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
 
 async def run_bot():
     """Асинхронный запуск Telegram бота"""
@@ -323,7 +329,26 @@ async def run_bot():
     app.add_error_handler(error_handler)
     
     print("✅ Бот запущен и готов к работе!")
-    await app.run_polling(drop_pending_updates=True)
+    
+    # Запускаем бота
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+    
+    # Держим бота активным
+    try:
+        while True:
+            await asyncio.sleep(3600)  # Спим 1 час
+    except KeyboardInterrupt:
+        pass
+    finally:
+        await app.updater.stop()
+        await app.stop()
+        await app.shutdown()
+
+def start_bot():
+    """Запускает бота в отдельном потоке с event loop"""
+    asyncio.run(run_bot())
 
 def main():
     logging.basicConfig(
@@ -335,15 +360,21 @@ def main():
         print("❌ ОШИБКА: TELEGRAM_TOKEN не установлен!")
         return
     
-    # Запускаем HTTP-сервер в отдельном потоке
+    # Получаем порт из переменных окружения Render
     port = int(os.environ.get("PORT", 8080))
-    http_thread = Thread(target=run_http_server, args=(port,))
-    http_thread.daemon = True
+    print(f"🌐 PORT из окружения: {port}")
+    
+    # Запускаем HTTP-сервер в отдельном потоке
+    http_thread = Thread(target=run_http_server, args=(port,), daemon=True)
     http_thread.start()
-    print(f"🌐 HTTP-сервер запущен в отдельном потоке на порту {port}")
+    print(f"✅ HTTP-сервер запущен в отдельном потоке на порту {port}")
+    
+    # Ждем немного, чтобы HTTP-сервер успел запуститься
+    time.sleep(2)
     
     # Запускаем бота в главном потоке
-    asyncio.run(run_bot())
+    print("🤖 Запускаем Telegram бота...")
+    start_bot()
 
 if __name__ == "__main__":
     main()
